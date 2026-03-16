@@ -1,0 +1,36 @@
+#!/bin/bash
+# find-gh-approvers: Analyze PR approval frequency and recency
+
+# Check for dependencies
+if ! command -v gh &> /dev/null || ! command -v jq &> /dev/null; then
+    echo "Error: gh and jq are required. Install them via 'brew install gh jq'."
+    exit 1
+fi
+
+verbose=false
+[[ "$1" == "--verbose" ]] && verbose=true
+
+if [ "$verbose" = true ]; then
+  # Original verbose logic: Detailed JSON output
+  gh pr list --state merged --json number,title,mergedAt,reviews,url -L 100 | jq -r '
+    map({
+      title,
+      mergedAt,
+      url,
+      approvers: ([.reviews[] | select(.state=="APPROVED") | .author.login])
+    }) | sort_by(.mergedAt)
+  '
+else
+  # Default logic: Grouped by Month and Frequency
+  gh pr list --state merged --json mergedAt,reviews --limit 100 | jq -r '
+    [ .[] | { month: .mergedAt[0:7], author: (.reviews[] | select(.state=="APPROVED").author.login) } ]
+    | group_by(.month)
+    | .[]
+    | "\n\(.[0].month):",
+      (group_by(.author)
+      | map({a: .[0].author, c: length})
+      | sort_by(-.c)
+      | .[]
+      | "  \(.c)\t\(.a)")
+  ' | column -t -s $'\t'
+fi
